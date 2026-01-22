@@ -1,18 +1,4 @@
-# ML_FireWall_Logs_MultiClass_Classification
-# Firewall Logs ML Intrusion Detection System
 import streamlit as st
-
-st.title("Firewall IDS")
-
-@st.cache_resource
-def train_models():
-    # all ML code here
-    return results
-
-results = train_models()
-st.success("Training complete")
-st.write(results)
-
 import pandas as pd
 import numpy as np
 
@@ -40,26 +26,41 @@ from sklearn.metrics import (
 )
 
 # =========================================================
-# 1. LOAD DATASET
+# STREAMLIT CONFIG
 # =========================================================
-df = pd.read_excel("log2_MultiClass_12_65K.xlsx")
+st.set_page_config(page_title="Multi-Class ML Evaluation", layout="wide")
+st.title("📊 Multi-Class Classification Model Evaluation")
+st.write("Comparison of multiple ML models on a multiclass dataset")
+
+# =========================================================
+# LOAD DATA
+# =========================================================
+@st.cache_data
+def load_data():
+    return pd.read_excel("log2_MultiClass_12_65K.xlsx")
+
+df = load_data()
 
 X = df.drop(columns=["Action"])
 y = df["Action"]
 
 label_encoder = LabelEncoder()
 y = label_encoder.fit_transform(y)
-
 class_names = label_encoder.classes_
 
-print("Dataset Shape:", df.shape)
-print("Columns:", df.columns.tolist())
-print("\nClass Mapping:")
-for i, cls in enumerate(label_encoder.classes_):
-    print(f"{i} -> {cls}")
+# =========================================================
+# DATASET INFO
+# =========================================================
+st.subheader("📁 Dataset Information")
+st.write("Shape:", df.shape)
+st.write("Features:", list(X.columns))
+st.write("Target Classes:")
+
+class_map = {i: cls for i, cls in enumerate(class_names)}
+st.json(class_map)
 
 # =========================================================
-# 2. TRAIN-TEST SPLIT
+# TRAIN TEST SPLIT
 # =========================================================
 X_train, X_test, y_train, y_test = train_test_split(
     X, y,
@@ -69,36 +70,27 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # =========================================================
-# 3. FEATURE SCALING
+# FEATURE SCALING
 # =========================================================
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
 # =========================================================
-# 4. MODELS (ALL)
+# MODELS
 # =========================================================
 models = {
     "Logistic Regression": OneVsRestClassifier(
         LogisticRegression(max_iter=500, solver="lbfgs")
     ),
-
-    "Decision Tree": DecisionTreeClassifier(
-        random_state=42
-    ),
-
-    "KNN": KNeighborsClassifier(
-        n_neighbors=5
-    ),
-
+    "Decision Tree": DecisionTreeClassifier(random_state=42),
+    "KNN": KNeighborsClassifier(n_neighbors=5),
     "Naive Bayes": GaussianNB(),
-
     "Random Forest (Ensemble)": RandomForestClassifier(
         n_estimators=200,
         random_state=42,
         n_jobs=-1
     ),
-
     "XGBoost (Ensemble)": XGBClassifier(
         objective="multi:softprob",
         eval_metric="mlogloss",
@@ -113,92 +105,61 @@ models = {
 }
 
 # =========================================================
-# 5. STORAGE OBJECTS
+# TRAIN, PREDICT, EVALUATE
 # =========================================================
 metrics_table = []
 classification_reports = {}
 confusion_matrices = {}
 
-# =========================================================
-# 6. TRAIN, PREDICT, EVALUATE
-# =========================================================
-for model_name, model in models.items():
+st.subheader("⚙️ Model Training & Evaluation")
 
-    # ---- Train & Predict ----
-    if model_name in ["Naive Bayes"]:
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)
+with st.spinner("Training models... please wait ⏳"):
+    for model_name, model in models.items():
 
-    elif model_name in ["Random Forest (Ensemble)", "XGBoost"]:
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        y_prob = model.predict_proba(X_test)
+        if model_name in ["Naive Bayes", "Random Forest (Ensemble)", "XGBoost (Ensemble)"]:
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            y_prob = model.predict_proba(X_test)
+        else:
+            model.fit(X_train_scaled, y_train)
+            y_pred = model.predict(X_test_scaled)
+            y_prob = model.predict_proba(X_test_scaled)
 
-    else:
-        model.fit(X_train_scaled, y_train)
-        y_pred = model.predict(X_test_scaled)
-        y_prob = model.predict_proba(X_test_scaled)
+        metrics_table.append({
+            "Model": model_name,
+            "Accuracy": accuracy_score(y_test, y_pred),
+            "AUC": roc_auc_score(y_test, y_prob, multi_class="ovr", average="weighted"),
+            "Precision": precision_score(y_test, y_pred, average="weighted", zero_division=0),
+            "Recall": recall_score(y_test, y_pred, average="weighted", zero_division=0),
+            "F1 Score": f1_score(y_test, y_pred, average="weighted", zero_division=0),
+            "MCC": matthews_corrcoef(y_test, y_pred)
+        })
 
-    # ---- Metrics ----
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, average="weighted", zero_division=0)
-    recall = recall_score(y_test, y_pred, average="weighted", zero_division=0)
-    f1 = f1_score(y_test, y_pred, average="weighted", zero_division=0)
-    mcc = matthews_corrcoef(y_test, y_pred)
+        classification_reports[model_name] = pd.DataFrame(
+            classification_report(y_test, y_pred, output_dict=True, zero_division=0)
+        ).transpose()
 
-    auc = roc_auc_score(
-        y_test,
-        y_prob,
-        multi_class="ovr",
-        average="weighted"
-    )
-
-    metrics_table.append({
-        "ML Model Name": model_name,
-        "Accuracy": accuracy,
-        "AUC": auc,
-        "Precision": precision,
-        "Recall": recall,
-        "F1 Score": f1,
-        "MCC": mcc
-    })
-
-    # ---- Classification Report ----
-    report = classification_report(
-        y_test,
-        y_pred,
-        output_dict=True,
-        zero_division=0
-    )
-    classification_reports[model_name] = pd.DataFrame(report).transpose()
-
-    # ---- Confusion Matrix ----
-    cm = confusion_matrix(y_test, y_pred)
-    confusion_matrices[model_name] = pd.DataFrame(
-        cm,
-        index=class_names,
-        columns=class_names
-    )
+        confusion_matrices[model_name] = pd.DataFrame(
+            confusion_matrix(y_test, y_pred),
+            index=class_names,
+            columns=class_names
+        )
 
 # =========================================================
-# 7. DISPLAY FINAL RESULTS
+# DISPLAY RESULTS
 # =========================================================
+st.subheader("📌 Final Metrics Comparison")
+metrics_df = pd.DataFrame(metrics_table).round(4)
+st.dataframe(metrics_df, use_container_width=True)
 
-# ---- Metrics Comparison Table ----
-metrics_df = pd.DataFrame(metrics_table)
-print("\n================ FINAL METRICS COMPARISON TABLE ================\n")
-print(metrics_df.round(4).to_string(index=False))
-
-# ---- Classification Reports ----
+st.subheader("📄 Classification Reports")
 for model_name, report_df in classification_reports.items():
-    print(f"\n================ CLASSIFICATION REPORT: {model_name} ================\n")
-    print(report_df.round(4))
+    with st.expander(f"{model_name} – Classification Report"):
+        st.dataframe(report_df.round(4))
 
-# ---- Confusion Matrices ----
+st.subheader("🔢 Confusion Matrices")
 for model_name, cm_df in confusion_matrices.items():
-    print(f"\n================ CONFUSION MATRIX: {model_name} ================\n")
-    print(cm_df)
+    with st.expander(f"{model_name} – Confusion Matrix"):
+        st.dataframe(cm_df)
 
-
-
+st.success("✅ Model evaluation completed successfully")
