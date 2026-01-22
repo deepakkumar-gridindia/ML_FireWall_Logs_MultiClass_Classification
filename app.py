@@ -1,5 +1,17 @@
 # ML_FireWall_Logs_MultiClass_Classification
 # Firewall Logs ML Intrusion Detection System
+import streamlit as st
+
+st.title("Firewall IDS")
+
+@st.cache_resource
+def train_models():
+    # all ML code here
+    return results
+
+results = train_models()
+st.success("Training complete")
+st.write(results)
 
 import pandas as pd
 import numpy as np
